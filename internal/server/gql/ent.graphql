@@ -1124,6 +1124,7 @@ enum ChannelType @goModel(model: "github.com/looplj/axonhub/internal/ent/channel
   bailian
   jina
   github
+  copilot
   claudecode
   cerebras
   antigravity

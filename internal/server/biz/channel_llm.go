@@ -30,6 +30,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/nanogpt"
 	"github.com/looplj/axonhub/llm/transformer/openai"
 	"github.com/looplj/axonhub/llm/transformer/openai/codex"
+	"github.com/looplj/axonhub/llm/transformer/openai/copilot"
 	"github.com/looplj/axonhub/llm/transformer/openai/responses"
 	"github.com/looplj/axonhub/llm/transformer/openrouter"
 	"github.com/looplj/axonhub/llm/transformer/xai"
@@ -140,7 +141,7 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel) (*Channel
 
 	//nolint:exhaustive // Checked.
 	switch c.Type {
-	case channel.TypeCodex, channel.TypeClaudecode:
+	case channel.TypeCodex, channel.TypeClaudecode, channel.TypeCopilot:
 		if !c.Credentials.IsOAuth() && len(enabledKeys) == 0 {
 			return nil, fmt.Errorf("missing credentials: oauth or api key required for channel %s", c.Name)
 		}
@@ -557,9 +558,93 @@ func (svc *ChannelService) buildChannelWithTransformer(c *ent.Channel) (*Channel
 		ch.Outbound = transformer
 
 		return ch, nil
+	case channel.TypeCopilot:
+		if c.Credentials.IsOAuth() {
+			credsJSON := strings.TrimSpace(c.Credentials.APIKey)
+			if c.Credentials.OAuth != nil {
+				o := c.Credentials.OAuth
+
+				creds, err := (&oauth.OAuthCredentials{
+					AccessToken:  o.AccessToken,
+					RefreshToken: o.RefreshToken,
+					ClientID:     o.ClientID,
+					ExpiresAt:    o.ExpiresAt,
+					TokenType:    o.TokenType,
+					Scopes:       o.Scopes,
+				}).ToJSON()
+				if err != nil {
+					return nil, fmt.Errorf("failed to encode copilot oauth credentials: %w", err)
+				}
+
+				credsJSON = creds
+			}
+
+			creds, err := oauth.ParseCredentialsJSON(credsJSON)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse copilot oauth credentials: %w", err)
+			}
+
+			oauthProvider := copilot.NewOAuthTokenProvider(oauth.TokenProviderParams{
+				Credentials: copilot.NormalizeOAuthCredentials(creds),
+				HTTPClient:  httpClient,
+				OnRefreshed: svc.onTokenRefreshed(c),
+			})
+
+			tokens := copilot.NewTokenProvider(copilot.TokenProviderParams{
+				OAuthProvider: oauthProvider,
+				HTTPClient:    httpClient,
+			})
+
+			transformer, err := copilot.NewOutboundTransformer(copilot.Params{
+				TokenProvider: tokens,
+				BaseURL:       c.BaseURL,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("failed to create copilot outbound transformer: %w", err)
+			}
+
+			ch.Outbound = transformer
+			if creds.RefreshToken != "" {
+				ch.startTokenProvider = func() {
+					oauthProvider.StartAutoRefresh(context.Background(), oauth.AutoRefreshOptions{})
+				}
+				ch.stopTokenProvider = oauthProvider.StopAutoRefresh
+			}
+
+			return ch, nil
+		}
+
+		apiKeyProvider := getAPIKeyProvider(ch)
+		tokens := oauth.NewAPIKeyTokenProvider(apiKeyProvider.Get)
+
+		transformer, err := copilot.NewOutboundTransformer(copilot.Params{
+			TokenProvider: tokens,
+			BaseURL:       c.BaseURL,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create copilot outbound transformer: %w", err)
+		}
+
+		ch.Outbound = transformer
+
+		return ch, nil
+	case channel.TypeGithub:
+
+		transformer, err := openai.NewOutboundTransformerWithConfig(&openai.Config{
+			PlatformType:   openai.PlatformOpenAI,
+			BaseURL:        c.BaseURL,
+			APIKeyProvider: getAPIKeyProvider(ch),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create outbound transformer: %w", err)
+		}
+
+		ch.Outbound = transformer
+
+		return ch, nil
 	case channel.TypeOpenai, channel.TypeDeepinfra, channel.TypeMinimax, channel.TypeXiaomi,
 		channel.TypePpio, channel.TypeSiliconflow,
-		channel.TypeVercel, channel.TypeAihubmix, channel.TypeBurncloud, channel.TypeGithub:
+		channel.TypeVercel, channel.TypeAihubmix, channel.TypeBurncloud:
 		transformer, err := openai.NewOutboundTransformerWithConfig(&openai.Config{
 			PlatformType:   openai.PlatformOpenAI,
 			BaseURL:        c.BaseURL,

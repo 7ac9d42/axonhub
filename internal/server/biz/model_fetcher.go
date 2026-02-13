@@ -17,6 +17,7 @@ import (
 	"github.com/looplj/axonhub/llm/transformer/anthropic/claudecode"
 	"github.com/looplj/axonhub/llm/transformer/antigravity"
 	"github.com/looplj/axonhub/llm/transformer/openai/codex"
+	"github.com/looplj/axonhub/llm/transformer/openai/copilot"
 )
 
 // ModelFetcher handles fetching models from provider APIs.
@@ -84,6 +85,17 @@ func (f *ModelFetcher) FetchModels(ctx context.Context, input FetchModelsInput) 
 
 	if result, ok := f.tryReturnDefaultModels(input.ChannelType); ok {
 		return result, nil
+	}
+
+	if input.ChannelType == channel.TypeCopilot.String() {
+		models := lo.Map(copilot.DefaultModels(), func(id string, _ int) ModelIdentify {
+			return ModelIdentify{ID: id}
+		})
+
+		return &FetchModelsResult{
+			Models: models,
+			Error:  nil,
+		}, nil
 	}
 
 	var (
