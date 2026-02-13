@@ -29,7 +29,7 @@ import {
 } from '@lobehub/icons';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { CHANNEL_CONFIGS } from './config_channels';
-import { ApiFormat, ChannelType } from './schema';
+import type { ApiFormat, ChannelType } from './schema';
 
 export interface ProviderConfig {
   provider: string;
@@ -145,6 +145,12 @@ export const PROVIDER_CONFIGS: Record<string, ProviderConfig> = {
     icon: Github,
     color: 'bg-gray-100 text-gray-800 border-gray-200',
     channelTypes: ['github'],
+  },
+  copilot: {
+    provider: 'copilot',
+    icon: Github,
+    color: 'bg-gray-100 text-gray-800 border-gray-200',
+    channelTypes: ['copilot'],
   },
   ppio: {
     provider: 'ppio',

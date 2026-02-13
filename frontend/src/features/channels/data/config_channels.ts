@@ -2,7 +2,7 @@ import type { ComponentType } from 'react';
 import { OpenAI, Anthropic, Google, DeepSeek, Doubao, Moonshot, Zhipu, OpenRouter, XAI, Volcengine, SiliconCloud, PPIO, ZAI, LongCat, Minimax, BurnCloud, Vercel, ModelScope, Bailian, Jina, DeepInfra, Github, Claude, Cerebras, XiaomiMiMo } from '@lobehub/icons';
 import { NanoGPTIcon } from '../components/nanogpt-icon';
 import { BURNCLOUD_DEFAULT_MODELS } from './burncloud-models';
-import { ApiFormat, ChannelType } from './schema';
+import type { ApiFormat, ChannelType } from './schema';
 
 
 export const OPENAI_CHAT_COMPLETIONS: ApiFormat = 'openai/chat_completions';
@@ -471,6 +471,25 @@ export const CHANNEL_CONFIGS: Record<ChannelType, ChannelConfig> = {
     color: 'bg-gray-100 text-gray-800 border-gray-200',
     icon: Github,
   },
+  copilot: {
+    channelType: 'copilot',
+    baseURL: 'https://api.githubcopilot.com',
+    defaultModels: [
+      'gpt-4.1',
+      'gpt-4o',
+      'o3-mini',
+      'claude-3.5-sonnet',
+      'claude-3.7-sonnet',
+      'openai/gpt-4.1',
+      'openai/gpt-4o',
+      'openai/o3-mini',
+      'anthropic/claude-3.5-sonnet',
+      'anthropic/claude-3.7-sonnet',
+    ],
+    apiFormat: OPENAI_CHAT_COMPLETIONS,
+    color: 'bg-gray-100 text-gray-800 border-gray-200',
+    icon: Github,
+  },
   claudecode: {
     channelType: 'claudecode',
     baseURL: 'https://api.anthropic.com/v1',
@@ -540,6 +559,7 @@ export type Provider =
   | 'bailian'
   | 'jina'
   | 'github'
+  | 'copilot'
   | 'cerebras'
   | 'codex'
   | 'antigravity'
@@ -587,6 +607,7 @@ export const CHANNEL_TYPE_TO_PROVIDER: Record<ChannelType, Provider> = {
   bailian: 'bailian',
   jina: 'jina',
   github: 'github',
+  copilot: 'copilot',
   codex: 'codex',
   claudecode: 'claudecode',
   cerebras: 'cerebras',

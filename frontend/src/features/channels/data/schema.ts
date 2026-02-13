@@ -59,6 +59,7 @@ export const channelTypeSchema = z.enum([
   'bailian',
   'jina',
   'github',
+  'copilot',
   'claudecode',
   'antigravity',
   'cerebras',
@@ -280,6 +281,16 @@ export const saveChannelModelPriceInputSchema = z.object({
 });
 export type SaveChannelModelPriceInput = z.infer<typeof saveChannelModelPriceInputSchema>;
 
+const oauthCredentialsSchemaRequiredRefresh = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1),
+});
+
+const oauthCredentialsSchemaOptionalRefresh = z.object({
+  access_token: z.string().min(1),
+  refresh_token: z.string().min(1).optional(),
+});
+
 // Create Channel Input
 export const createChannelInputSchema = z
   .object({
@@ -310,7 +321,7 @@ export const createChannelInputSchema = z
     }),
   })
   .superRefine((data, ctx) => {
-    const isOAuthType = data.type === 'codex' || data.type === 'claudecode' || data.type === 'antigravity';
+    const isOAuthType = data.type === 'codex' || data.type === 'claudecode' || data.type === 'copilot' || data.type === 'antigravity';
     const hasApiKey = data.credentials.apiKey && data.credentials.apiKey.trim().length > 0;
     const hasApiKeys = data.credentials.apiKeys && data.credentials.apiKeys.some((k) => k.trim().length > 0);
 
@@ -341,12 +352,8 @@ export const createChannelInputSchema = z
           return;
         }
 
-        const parsed = z
-          .object({
-            access_token: z.string().min(1),
-            refresh_token: z.string().min(1),
-          })
-          .safeParse(json);
+        const oauthSchema = data.type === 'copilot' ? oauthCredentialsSchemaOptionalRefresh : oauthCredentialsSchemaRequiredRefresh;
+        const parsed = oauthSchema.safeParse(json);
 
         if (!parsed.success) {
           ctx.addIssue(issue);
@@ -415,7 +422,7 @@ export const updateChannelInputSchema = z
     orderingWeight: z.number().optional(),
   })
   .superRefine((data, ctx) => {
-    const isOAuthType = data.type === 'codex' || data.type === 'claudecode' || data.type === 'antigravity';
+    const isOAuthType = data.type === 'codex' || data.type === 'claudecode' || data.type === 'copilot' || data.type === 'antigravity';
 
     if (isOAuthType) {
       if (!data.credentials) return;
@@ -437,12 +444,8 @@ export const updateChannelInputSchema = z
           return;
         }
 
-        const parsed = z
-          .object({
-            access_token: z.string().min(1),
-            refresh_token: z.string().min(1),
-          })
-          .safeParse(json);
+        const oauthSchema = data.type === 'copilot' ? oauthCredentialsSchemaOptionalRefresh : oauthCredentialsSchemaRequiredRefresh;
+        const parsed = oauthSchema.safeParse(json);
 
         if (!parsed.success) {
           ctx.addIssue(issue);

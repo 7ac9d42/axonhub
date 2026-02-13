@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { X, RefreshCw, Search, ChevronLeft, ChevronRight, PanelLeft, Plus, Trash2, Eye, EyeOff, Copy } from 'lucide-react';
@@ -29,12 +29,12 @@ import {
   useCreateChannel,
   useUpdateChannel,
   useFetchModels,
-  useBulkCreateChannels,
   useAllChannelNames,
   useAllChannelTags,
   useChannelDisabledAPIKeys,
 } from '../data/channels';
 import { claudecodeOAuthExchange, claudecodeOAuthStart } from '../data/claudecode';
+import { copilotOAuthExchange, copilotOAuthStart } from '../data/copilot';
 import { codexOAuthExchange, codexOAuthStart } from '../data/codex';
 import {
   getDefaultBaseURL,
@@ -51,8 +51,8 @@ import {
   getApiFormatsForProvider,
   getChannelTypeForApiFormat,
 } from '../data/config_providers';
-import { Channel, ChannelType, ApiFormat, createChannelInputSchema, updateChannelInputSchema } from '../data/schema';
-import { ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
+import { createChannelInputSchema, updateChannelInputSchema, type ApiFormat, type Channel, type ChannelType } from '../data/schema';
+import { type ProxyConfig, useOAuthFlow } from '../hooks/use-oauth-flow';
 import { ManualModelBadge } from './manual-model-badge';
 import { ProxyType } from './channels-proxy-dialog';
 import { mergeChannelSettingsForUpdate } from '../utils/merge';
@@ -66,6 +66,7 @@ interface Props {
 }
 
 const MAX_MODELS_DISPLAY = 2;
+const COPILOT_OFFICIAL_BASE_URL = 'https://api.githubcopilot.com';
 
 const duplicateNameRegex = /^(.*) \((\d+)\)$/;
 
@@ -125,9 +126,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const [selectedKeysToRemove, setSelectedKeysToRemove] = useState<Set<string>>(new Set());
   const [confirmRemoveSelectedOpen, setConfirmRemoveSelectedOpen] = useState(false);
   const [confirmRemoveKey, setConfirmRemoveKey] = useState<string | null>(null);
-  const [showGcpJsonData, setShowGcpJsonData] = useState(false);
   const [authMode, setAuthMode] = useState<'official' | 'third-party'>('official');
-  const dialogContentRef = useRef<HTMLDivElement>(null);
 
   const [proxyType, setProxyType] = useState<ProxyType>(() => {
     if (initialRow?.settings?.proxy?.type) {
@@ -179,6 +178,15 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     exchangeFn: antigravityOAuthExchange,
     projectId: selectedProjectId,
     proxyConfig,
+    onSuccess: (credentials) => {
+      form.setValue('credentials.apiKey', credentials);
+    },
+  });
+
+  const copilotOAuth = useOAuthFlow({
+    startFn: copilotOAuthStart,
+    exchangeFn: copilotOAuthExchange,
+    projectId: selectedProjectId,
     onSuccess: (credentials) => {
       form.setValue('credentials.apiKey', credentials);
     },
@@ -242,6 +250,18 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       } else {
         setAuthMode('third-party');
       }
+    } else if (initialRow.type === 'copilot') {
+      try {
+        const apiKey = initialRow.credentials?.apiKey || '';
+        const json = JSON.parse(apiKey);
+        if (json.access_token) {
+          setAuthMode('official');
+        } else {
+          setAuthMode('third-party');
+        }
+      } catch {
+        setAuthMode(initialRow.baseURL === COPILOT_OFFICIAL_BASE_URL ? 'official' : 'third-party');
+      }
     }
   }, [initialRow]);
 
@@ -251,8 +271,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
       codexOAuth.reset();
       claudecodeOAuth.reset();
       antigravityOAuth.reset();
+      copilotOAuth.reset();
     }
-  }, [open, codexOAuth, claudecodeOAuth, antigravityOAuth]);
+  }, [open, codexOAuth, claudecodeOAuth, antigravityOAuth, copilotOAuth]);
 
   useEffect(() => {
     if (!open) {
@@ -284,7 +305,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     }, 100);
 
     return () => clearTimeout(timer);
-  }, [open, isEdit, selectedProvider]);
+  }, [open, selectedProvider]);
 
   // Auto-open supported models panel when showModelsPanel is true
   useEffect(() => {
@@ -449,8 +470,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
   const selectedType = form.watch('type') as ChannelType | undefined;
 
   const isCodexType = (selectedType || derivedChannelType) === 'codex';
-  const isAntigravityType = (selectedType || derivedChannelType) === 'antigravity';
   const isClaudeCodeType = (selectedType || derivedChannelType) === 'claudecode';
+  const isAntigravityType = (selectedType || derivedChannelType) === 'antigravity';
+  const isCopilotType = (selectedType || derivedChannelType) === 'copilot';
 
   useEffect(() => {
     // Only force stream: 'require' for new Codex channels, not when editing existing ones
@@ -644,17 +666,22 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
     if (selectedProvider !== 'antigravity') {
       antigravityOAuth.reset();
     }
+    if (selectedProvider !== 'copilot') {
+      copilotOAuth.reset();
+    }
 
     const providerToChannelType: Partial<Record<string, ChannelType>> = {
       claudecode: authMode === 'official' ? 'claudecode' : undefined,
       codex: authMode === 'official' ? 'codex' : undefined,
+      github: 'github',
+      copilot: authMode === 'official' ? 'copilot' : undefined,
       antigravity: 'antigravity',
     };
 
-    let channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
+    const channelTypeForURL: ChannelType | undefined = providerToChannelType[selectedProvider];
 
     if (channelTypeForURL) {
-      const baseURL = getDefaultBaseURL(channelTypeForURL);
+      const baseURL = selectedProvider === 'copilot' && authMode === 'official' ? COPILOT_OFFICIAL_BASE_URL : getDefaultBaseURL(channelTypeForURL);
       if (baseURL) {
         // Use setValue instead of resetField to avoid infinite loop
         const currentURL = form.getValues('baseURL');
@@ -663,7 +690,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         }
       }
     }
-  }, [isEdit, isDuplicate, isCodexType, selectedProvider, authMode, form, codexOAuth, claudecodeOAuth, antigravityOAuth]);
+  }, [isEdit, isDuplicate, isCodexType, selectedProvider, authMode, form, codexOAuth, claudecodeOAuth, antigravityOAuth, copilotOAuth]);
 
   const renderOAuthSection = useCallback(
     (oauth: ReturnType<typeof useOAuthFlow>, description: string) => (
@@ -739,9 +766,9 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
         manualModels,
       };
 
-      if ((isCodexType || isClaudeCodeType) && authMode === 'official' && !isDuplicate) {
+      if ((isCodexType || isClaudeCodeType || isCopilotType) && authMode === 'official' && !isDuplicate) {
         const currentType = selectedType || derivedChannelType;
-        const baseURL = getDefaultBaseURL(currentType);
+        const baseURL = isCopilotType ? COPILOT_OFFICIAL_BASE_URL : getDefaultBaseURL(currentType);
         if (baseURL) {
           dataWithModels.baseURL = baseURL;
         }
@@ -1367,7 +1394,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
-                      {(isCodexType || isClaudeCodeType) && (
+                      {(isCodexType || isClaudeCodeType || isCopilotType) && (
                         <div className='grid grid-cols-1 items-start gap-x-6 gap-y-2 md:grid-cols-8'>
                           <div className='col-span-2' />
                           <div className='space-y-4 md:col-span-6'>
@@ -1376,11 +1403,16 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                               onValueChange={(value) => {
                                 const mode = value as 'official' | 'third-party';
                                 setAuthMode(mode);
+                                const currentType = selectedType || derivedChannelType;
                                 if (mode === 'official') {
-                                  const currentType = selectedType || derivedChannelType;
-                                  const defaultURL = getDefaultBaseURL(currentType);
-                                  if (defaultURL) {
-                                    form.setValue('baseURL', defaultURL);
+                                  const officialURL = isCopilotType ? COPILOT_OFFICIAL_BASE_URL : getDefaultBaseURL(currentType);
+                                  if (officialURL) {
+                                    form.setValue('baseURL', officialURL);
+                                  }
+                                } else if (isCopilotType) {
+                                  const thirdPartyURL = getDefaultBaseURL(currentType);
+                                  if (thirdPartyURL) {
+                                    form.setValue('baseURL', thirdPartyURL);
                                   }
                                 }
                               }}
@@ -1401,6 +1433,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 {isCodexType && renderOAuthSection(codexOAuth, t('channels.dialogs.fields.apiFormat.codex.description'))}
                                 {isClaudeCodeType &&
                                   renderOAuthSection(claudecodeOAuth, t('channels.dialogs.fields.apiFormat.claudecode.description'))}
+                                {isCopilotType && renderOAuthSection(copilotOAuth, t('channels.dialogs.fields.apiFormat.copilot.description'))}
                               </div>
                             )}
                           </div>
@@ -1423,7 +1456,8 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                                 aria-invalid={!!fieldState.error}
                                 data-testid='channel-base-url-input'
                                 disabled={
-                                  ((isCodexType || isClaudeCodeType) && authMode === 'official') || selectedProvider === 'antigravity'
+                                  ((isCodexType || isClaudeCodeType || isCopilotType) && authMode === 'official') ||
+                                  selectedProvider === 'antigravity'
                                 }
                                 {...field}
                               />
@@ -1433,7 +1467,7 @@ export function ChannelsActionDialog({ currentRow, duplicateFromRow, open, onOpe
                         )}
                       />
 
-                      {(!(isCodexType || isClaudeCodeType) || authMode === 'third-party') &&
+                      {(!(isCodexType || isClaudeCodeType || isCopilotType) || authMode === 'third-party') &&
                         selectedProvider !== 'antigravity' &&
                         selectedType !== 'anthropic_gcp' && (
                           <FormField
